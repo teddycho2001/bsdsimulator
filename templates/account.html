@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+
+{% block title %}
+    Account
+{% endblock %}
+
+{% block main %}
+    <form action="/account" method="post">
+        <div class="form-group">
+            <input autofocus class="form-control" name="old_password" placeholder="Current password" type="password">
+        </div>
+        <div class="form-group">
+            <input class="form-control" name="new_password" placeholder="New password" type="password">
+        </div>
+        <div class="form-group">
+            <input class="form-control" name="confirmation" placeholder="Re-enter new password" type="password"
+                   aria-describedby="passwordHelp">
+            <small id="passwordHelp" class="form-text text-muted">Passwords must be at least 6 characters.</small>
+            <small id="passwordHelp" class="form-text text-muted">We store a hash of your password to ensure its
+                security.</small>
+        </div>
+        <button class="btn btn-primary" type="submit">Save changes</button>
+    </form>
+{% endblock %}

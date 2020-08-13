@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+
+{% block title %}
+    Leaderboard
+{% endblock %}
+
+{% block main %}
+    <table class="table table-striped">
+        <thead>
+        <tr>
+            <th scope="col">Rank</th>
+            <th scope="col">Username</th>
+            <th scope="col">Net Worth</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for user in ranking %}
+            <tr>
+                <td>{{ user["rank"] }}</td>
+                <td>{{ user["username"] }}</td>
+                <td>{{ user["networth"] | usd }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+{% endblock %}
