@@ -90,18 +90,19 @@ def index():
     networth = cash
 
     # Query the user's current stock portfolio
-    stocks = db.session.query(db.func.sum(Transaction.shares).label("shares"), Transaction.symbol,
-                              Transaction.name).filter_by(user_id=session["user_id"]).group_by(
-        Transaction.symbol).having(db.func.sum(Transaction.shares) > 0).order_by(
+    stocks = db.session.query(db.func.sum(Transaction.shares).label("shares"), Transaction.symbol).filter_by(
+        user_id=session["user_id"]).group_by(Transaction.symbol).having(db.func.sum(Transaction.shares) > 0).order_by(
         Transaction.symbol).all()
 
     portfolio = []
 
     # Generate user portfolio and compute net worth
     for stock in stocks:
-        tmpstock = {"shares": stock.shares, "symbol": stock.symbol, "name": stock.name}
+        tmpstock = {"shares": stock.shares, "symbol": stock.symbol}
         tmpprice = lookup(stock.symbol)["price"]
+        tmpname = lookup(stock.symbol)["name"]
         tmpstock["price"] = tmpprice
+        tmpstock["name"] = tmpname
         networth += tmpprice * stock.shares
         portfolio.append(tmpstock)
 
