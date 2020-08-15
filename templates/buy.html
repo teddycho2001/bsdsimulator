@@ -7,11 +7,29 @@
 {% block main %}
     <form action="/buy" method="post">
         <div class="form-group">
-            <input autocomplete="off" autofocus class="form-control" name="symbol" placeholder="Symbol" type="text">
+            <input autocomplete="off" autofocus class="form-control" id="symbol" name="symbol" placeholder="Symbol"
+                   type="text">
         </div>
         <div class="form-group">
-            <input autocomplete="off" class="form-control" min="1" name="shares" placeholder="Shares" type="number">
+            <input autocomplete="off" class="form-control" min="1" id="shares" name="shares" placeholder="Shares"
+                   type="number">
         </div>
-        <button class="btn btn-primary" type="submit">Buy</button>
+        <button class="btn btn-primary" id="submit" type="submit" disabled>Buy</button>
     </form>
+    <script>
+        document.querySelector('#symbol').onkeyup = function () {
+            if (document.querySelector('#symbol').value === '' || document.querySelector('#shares').value === '') {
+                document.querySelector('#submit').disabled = true;
+            } else {
+                document.querySelector('#submit').disabled = false;
+            }
+        }
+        document.querySelector('#shares').onkeyup = function () {
+            if (document.querySelector('#symbol').value === '' || document.querySelector('#shares').value === '') {
+                document.querySelector('#submit').disabled = true;
+            } else {
+                document.querySelector('#submit').disabled = false;
+            }
+        }
+    </script>
 {% endblock %}

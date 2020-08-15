@@ -1,8 +1,9 @@
 import os
-import sqlite3
 
+from datetime import datetime
 from flask import Flask, flash, redirect, render_template, request, session
 from flask_session import Session
+from flask_sqlalchemy import SQLAlchemy
 from tempfile import mkdtemp
 from werkzeug.exceptions import default_exceptions, HTTPException, InternalServerError
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -11,6 +12,41 @@ from helpers import apology, login_required, lookup, usd
 
 # Configure application
 app = Flask(__name__)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
+db = SQLAlchemy(app)
+
+
+# Declare User model
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), unique=True, nullable=False)
+    hash = db.Column(db.String(256), nullable=False)
+    cash = db.Column(db.Numeric, nullable=False, default=10000.00)
+    transactions = db.relationship("Transaction", backref="user", lazy=True)
+
+    def __init__(self, username, hash):
+        self.username = username
+        self.hash = hash
+
+
+# Declare Transaction model
+class Transaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    name = db.Column(db.String(64), nullable=False)
+    symbol = db.Column(db.String(16), nullable=False)
+    shares = db.Column(db.Integer, nullable=False)
+    price = db.Column(db.Numeric, nullable=False)
+    transacted = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def __init__(self, user_id, name, symbol, shares, price):
+        self.user_id = user_id
+        self.name = name
+        self.symbol = symbol
+        self.shares = shares
+        self.price = price
+
 
 # Ensure templates are auto-reloaded
 app.config["TEMPLATES_AUTO_RELOAD"] = True
@@ -44,140 +80,123 @@ if not os.environ.get("API_KEY"):
 def index():
     """Show portfolio of stocks"""
 
-    # Connect to SQLite database
-    with sqlite3.connect("finance.db") as conn:
-        conn.row_factory = dict_factory
-        c = conn.cursor()
+    # Query the user's current cash balance
+    user = User.query.get(session["user_id"])
+    cash = float(user.cash)
+    networth = cash
 
-        # Query the user's current cash balance
-        c.execute("SELECT * FROM users WHERE id = (?)", (session["user_id"],))
-        rows = c.fetchall()
-        cash = rows[0]["cash"]
+    # Query the user's current stock portfolio
+    stocks = db.session.query(db.func.sum(Transaction.shares).label("shares"), Transaction.symbol,
+                              Transaction.name).filter_by(user_id=session["user_id"]).group_by(
+        Transaction.symbol).having(db.func.sum(Transaction.shares) > 0).order_by(
+        Transaction.symbol).all()
 
-        # Query the user's current stock portfolio
-        c.execute(
-            "SELECT SUM(shares) AS shares, symbol, name FROM transactions WHERE user_id = (?) GROUP BY symbol HAVING SUM(shares) > 0 ORDER BY symbol",
-            (session["user_id"],))
-        rows = c.fetchall()
+    portfolio = []
 
-        # Lookup current price of each stock in portfolio
-        for stock in rows:
-            stock["price"] = lookup(stock["symbol"])["price"]
+    # Generate user portfolio and compute net worth
+    for stock in stocks:
+        tmpstock = {"shares": stock.shares, "symbol": stock.symbol, "name": stock.name}
+        tmpprice = lookup(stock.symbol)["price"]
+        tmpstock["price"] = tmpprice
+        networth += tmpprice * stock.shares
+        portfolio.append(tmpstock)
 
-        # Calculate total portfolio value
-        value = cash
-        for stock in rows:
-            value += stock["price"] * stock["shares"]
-
-        return render_template("index.html", cash=cash, rows=rows, value=value)
+    return render_template("index.html", portfolio=portfolio, cash=cash, networth=networth)
 
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
     """Register user"""
 
-    # Connect to SQLite database
-    with sqlite3.connect("finance.db") as conn:
-        conn.row_factory = dict_factory
-        c = conn.cursor()
+    # Forget any user_id
+    session.clear()
 
-        # Forget any user_id
-        session.clear()
+    # User reached route via POST (as by submitting a form via POST)
+    if request.method == "POST":
 
-        # User reached route via POST (as by submitting a form via POST)
-        if request.method == "POST":
-
-            # Ensure username was submitted
-            if not request.form.get("username"):
-                flash("Must provide username.")
-                return render_template("register.html")
-
-            # Ensure password was submitted
-            if not request.form.get("password"):
-                flash("Must provide password.")
-                return render_template("register.html")
-
-            # Ensure password meets length requirement
-            if len(request.form.get("password")) < 6:
-                flash("Password does not meet length requirement.")
-                return render_template("register.html")
-
-            # Ensure password fields match
-            if request.form.get("password") != request.form.get("confirmation"):
-                flash("Passwords do not match.")
-                return render_template("register.html")
-
-            # Query database for username
-            c.execute("SELECT * FROM users WHERE username = (?)", (request.form.get("username"),))
-            rows = c.fetchall()
-
-            # Ensure username doesn't already exist
-            if len(rows) != 0:
-                flash("Username is not available.")
-                return render_template("register.html")
-
-            # Insert user credentials into database
-            c.execute("INSERT INTO users (username, hash) VALUES (?, ?)",
-                      (request.form.get("username"), generate_password_hash(request.form.get("password")),))
-            id = c.lastrowid
-            conn.commit()
-
-            # Remember which user has registered
-            session["user_id"] = id
-
-            # Redirect user to home page
-            flash("Registered!")
-            return redirect("/")
-
-        # User reached route via GET (as by clicking a link or via redirect)
-        else:
+        # Ensure username was submitted
+        if not request.form.get("username"):
+            flash("Must provide username.")
             return render_template("register.html")
+
+        # Ensure password was submitted
+        if not request.form.get("password"):
+            flash("Must provide password.")
+            return render_template("register.html")
+
+        # Ensure password meets length requirement
+        if len(request.form.get("password")) < 6:
+            flash("Password does not meet length requirement.")
+            return render_template("register.html")
+
+        # Ensure password fields match
+        if request.form.get("password") != request.form.get("confirmation"):
+            flash("Passwords do not match.")
+            return render_template("register.html")
+
+        # Query database for username
+        user = User.query.filter_by(username=request.form.get("username")).first()
+
+        # Ensure username doesn't already exist
+        if user is not None:
+            flash("Username is not available.")
+            return render_template("register.html")
+
+        # Insert user credentials into database
+        user = User(request.form.get("username"), generate_password_hash(request.form.get("password")))
+        db.session.add(user)
+        db.session.commit()
+
+        # Remember which user has registered
+        session["user_id"] = user.id
+
+        # Redirect user to home page
+        flash("Registered!")
+        return redirect("/")
+
+    # User reached route via GET (as by clicking a link or via redirect)
+    else:
+        return render_template("register.html")
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     """Log user in"""
 
-    # Connect to SQLite database
-    with sqlite3.connect("finance.db") as conn:
-        conn.row_factory = dict_factory
-        c = conn.cursor()
+    # Forget any user_id
+    session.clear()
 
-        # Forget any user_id
-        session.clear()
+    # User reached route via POST (as by submitting a form via POST)
+    if request.method == "POST":
 
-        # User reached route via POST (as by submitting a form via POST)
-        if request.method == "POST":
-
-            # Ensure username was submitted
-            if not request.form.get("username"):
-                flash("Must provide username.")
-                return render_template("login.html")
-
-            # Ensure password was submitted
-            if not request.form.get("password"):
-                flash("Must provide password.")
-                return render_template("login.html")
-
-            # Query database for username
-            c.execute("SELECT * FROM users WHERE username = (?)", (request.form.get("username"),))
-            rows = c.fetchall()
-
-            # Ensure username exists and password is correct
-            if len(rows) != 1 or not check_password_hash(rows[0]["hash"], request.form.get("password")):
-                flash("Invalid username and/or password.")
-                return render_template("login.html")
-
-            # Remember which user has logged in
-            session["user_id"] = rows[0]["id"]
-
-            # Redirect user to home page
-            flash("Logged in!")
-            return redirect("/")
-
-        # User reached route via GET (as by clicking a link or via redirect)
-        else:
+        # Ensure username was submitted
+        if not request.form.get("username"):
+            flash("Must provide username.")
             return render_template("login.html")
+
+        # Ensure password was submitted
+        if not request.form.get("password"):
+            flash("Must provide password.")
+            return render_template("login.html")
+
+        # Query database for username
+        user = User.query.filter_by(username=request.form.get("username")).first()
+
+        # Ensure username exists and password is correct
+        if user is None or not check_password_hash(user.hash, request.form.get("password")):
+            flash("Invalid username and/or password.")
+            return render_template("login.html")
+
+        # Remember which user has logged in
+        session["user_id"] = user.id
+
+        # Redirect user to home page
+        flash("Logged in!")
+        return redirect("/")
+
+    # User reached route via GET (as by clicking a link or via redirect)
+    else:
+        return render_template("login.html")
 
 
 @app.route("/logout")
@@ -205,14 +224,14 @@ def quote():
             return render_template("quote.html")
 
         # Lookup the stock symbol
-        quote = lookup(request.form.get("symbol"))
+        stock = lookup(request.form.get("symbol"))
 
         # Ensure symbol is valid
-        if quote is None:
+        if stock is None:
             flash("Invalid symbol.")
             return render_template("quote.html")
 
-        return render_template("quoted.html", quote=quote)
+        return render_template("quoted.html", stock=stock)
 
     # User reached route via GET (as by clicking a link or via redirect)
     else:
@@ -224,57 +243,53 @@ def quote():
 def buy():
     """Buy shares of stock"""
 
-    # Connect to SQLite database
-    with sqlite3.connect("finance.db") as conn:
-        conn.row_factory = dict_factory
-        c = conn.cursor()
+    # User reached route via POST (as by submitting a form via POST)
+    if request.method == "POST":
 
-        # User reached route via POST (as by submitting a form via POST)
-        if request.method == "POST":
-
-            # Ensure symbol was submitted
-            if not request.form.get("symbol"):
-                flash("Missing symbol.")
-                return render_template("buy.html")
-
-            # Ensure shares was submitted
-            if not request.form.get("shares"):
-                flash("Missing shares.")
-                return render_template("buy.html")
-
-            # Lookup the stock symbol
-            quote = lookup(request.form.get("symbol"))
-
-            # Ensure symbol is valid
-            if quote is None:
-                flash("Invalid symbol.")
-                return render_template("buy.html")
-
-            # Query how much cash the user currently has
-            c.execute("SELECT * FROM users WHERE id = (?)", (session["user_id"],))
-            rows = c.fetchall()
-            cash = rows[0]["cash"]
-
-            # Ensure user can afford the stock
-            if cash < int(request.form.get("shares")) * quote["price"]:
-                flash("Cannot afford stock.")
-                return render_template("buy.html")
-
-            # Buy stock
-            cash -= int(request.form.get("shares")) * quote["price"]
-            bought = int(request.form.get("shares"))
-            c.execute("INSERT INTO transactions (user_id, name, symbol, shares, price) VALUES (?, ?, ?, ?, ?)",
-                      (session["user_id"], quote["name"], quote["symbol"], bought, quote["price"],))
-            c.execute("UPDATE users SET cash = (?) WHERE id = (?)", (cash, session["user_id"],))
-            conn.commit()
-
-            # Redirect user to home page
-            flash("Bought!")
-            return redirect("/")
-
-        # User reached route via GET (as by clicking a link or via redirect)
-        else:
+        # Ensure symbol was submitted
+        if not request.form.get("symbol"):
+            flash("Missing symbol.")
             return render_template("buy.html")
+
+        # Ensure shares was submitted
+        if not request.form.get("shares"):
+            flash("Missing shares.")
+            return render_template("buy.html")
+
+        # Lookup the stock symbol
+        stock = lookup(request.form.get("symbol"))
+
+        # Ensure symbol is valid
+        if stock is None:
+            flash("Invalid symbol.")
+            return render_template("buy.html")
+
+        # Query how much cash the user currently has
+        user = User.query.get(session["user_id"])
+        cash = float(user.cash)
+
+        # Ensure user can afford the stock
+        if cash < int(request.form.get("shares")) * stock["price"]:
+            flash("Cannot afford stock.")
+            return render_template("buy.html")
+
+        # Calculate cash upon purchase and update database
+        cash -= int(request.form.get("shares")) * stock["price"]
+        user.cash = cash
+
+        # Insert buy transaction into database
+        quantity = int(request.form.get("shares"))
+        transaction = Transaction(session["user_id"], stock["name"], stock["symbol"], quantity, stock["price"])
+        db.session.add(transaction)
+        db.session.commit()
+
+        # Redirect user to home page
+        flash("Bought!")
+        return redirect("/")
+
+    # User reached route via GET (as by clicking a link or via redirect)
+    else:
+        return render_template("buy.html")
 
 
 @app.route("/sell", methods=["GET", "POST"])
@@ -282,84 +297,77 @@ def buy():
 def sell():
     """Sell shares of stock"""
 
-    # Connect to SQLite database
-    with sqlite3.connect("finance.db") as conn:
-        conn.row_factory = dict_factory
-        c = conn.cursor()
+    # User reached route via POST (as by submitting a form via POST)
+    if request.method == "POST":
 
-        # User reached route via POST (as by submitting a form via POST)
-        if request.method == "POST":
+        # Ensure symbol was submitted
+        if not request.form.get("symbol"):
+            flash("Missing symbol.")
+            stocks = db.session.query(Transaction.symbol).filter_by(user_id=session["user_id"]).group_by(
+                Transaction.symbol).having(db.func.sum(Transaction.shares) > 0).order_by(
+                Transaction.symbol).all()
+            return render_template("sell.html", stocks=stocks)
 
-            # Ensure symbol was submitted
-            if not request.form.get("symbol"):
-                flash("Missing symbol.")
-                c.execute(
-                    "SELECT symbol FROM transactions WHERE user_id = (?) GROUP BY symbol HAVING SUM(shares) > 0 ORDER BY symbol",
-                    (session["user_id"],))
-                rows = c.fetchall()
-                return render_template("sell.html", rows=rows)
+        # Ensure shares was submitted
+        if not request.form.get("shares"):
+            flash("Missing shares.")
+            stocks = db.session.query(Transaction.symbol).filter_by(user_id=session["user_id"]).group_by(
+                Transaction.symbol).having(db.func.sum(Transaction.shares) > 0).order_by(
+                Transaction.symbol).all()
+            return render_template("sell.html", stocks=stocks)
 
-            # Ensure shares was submitted
-            if not request.form.get("shares"):
-                flash("Missing shares.")
-                c.execute(
-                    "SELECT symbol FROM transactions WHERE user_id = (?) GROUP BY symbol HAVING SUM(shares) > 0 ORDER BY symbol",
-                    (session["user_id"],))
-                rows = c.fetchall()
-                return render_template("sell.html", rows=rows)
+        # Query how many shares of the stock the user has
+        transactions = Transaction.query.filter_by(user_id=session["user_id"], symbol=request.form.get("symbol")).all()
 
-            # Query how many shares of the stock the user has
-            c.execute("SELECT SUM(shares) AS shares FROM transactions WHERE user_id = (?) AND symbol = (?)",
-                      (session["user_id"], request.form.get("symbol"),))
-            rows = c.fetchall()
+        quantity = 0
+        for transaction in transactions:
+            quantity += transaction.shares
 
-            # Ensure user actually owns shares of the stock
-            if rows[0]["shares"] < 1:
-                flash("You do not own any shares.")
-                c.execute(
-                    "SELECT symbol FROM transactions WHERE user_id = (?) GROUP BY symbol HAVING SUM(shares) > 0 ORDER BY symbol",
-                    (session["user_id"],))
-                rows = c.fetchall()
-                return render_template("sell.html", rows=rows)
+        # Ensure user actually owns shares of the stock
+        if quantity < 1:
+            flash("You do not own any shares.")
+            stocks = db.session.query(Transaction.symbol).filter_by(user_id=session["user_id"]).group_by(
+                Transaction.symbol).having(db.func.sum(Transaction.shares) > 0).order_by(
+                Transaction.symbol).all()
+            return render_template("sell.html", stocks=stocks)
 
-            # Ensure user owns enough shares of the stock
-            if rows[0]["shares"] < int(request.form.get("shares")):
-                flash("You do not own enough shares.")
-                c.execute(
-                    "SELECT symbol FROM transactions WHERE user_id = (?) GROUP BY symbol HAVING SUM(shares) > 0 ORDER BY symbol",
-                    (session["user_id"],))
-                rows = c.fetchall()
-                return render_template("sell.html", rows=rows)
+        # Ensure user owns enough shares of the stock
+        if quantity < int(request.form.get("shares")):
+            flash("You do not own enough shares.")
+            stocks = db.session.query(Transaction.symbol).filter_by(user_id=session["user_id"]).group_by(
+                Transaction.symbol).having(db.func.sum(Transaction.shares) > 0).order_by(
+                Transaction.symbol).all()
+            return render_template("sell.html", stocks=stocks)
 
-            # Query stock price
-            quote = lookup(request.form.get("symbol"))
+        # Query stock price
+        stock = lookup(request.form.get("symbol"))
 
-            # Query current cash balance
-            c.execute("SELECT * FROM users WHERE id = (?)", (session["user_id"],))
-            rows = c.fetchall()
-            cash = rows[0]["cash"]
+        # Query current cash balance
+        user = User.query.get(session["user_id"])
+        cash = float(user.cash)
 
-            # Sell stock
-            cash += int(request.form.get("shares")) * quote["price"]
-            sold = -(int(request.form.get("shares")))
-            c.execute("INSERT INTO transactions (user_id, name, symbol, shares, price) VALUES (?, ?, ?, ?, ?)",
-                      (session["user_id"], quote["name"], quote["symbol"], sold, quote["price"],))
-            c.execute("UPDATE users SET cash = (?) WHERE id = (?)", (cash, session["user_id"],))
-            conn.commit()
+        # Calculate cash upon sale and update database
+        cash += int(request.form.get("shares")) * stock["price"]
+        user.cash = cash
 
-            # Redirect user to home page
-            flash("Sold!")
-            return redirect("/")
+        # Insert sell transaction into database
+        quantity = -(int(request.form.get("shares")))
+        transaction = Transaction(session["user_id"], stock["name"], stock["symbol"], quantity, stock["price"])
+        db.session.add(transaction)
+        db.session.commit()
 
-        # User reached route via GET (as by clicking a link or via redirect)
-        else:
+        # Redirect user to home page
+        flash("Sold!")
+        return redirect("/")
 
-            # Query the user's current stock portfolio
-            c.execute(
-                "SELECT symbol FROM transactions WHERE user_id = (?) GROUP BY symbol HAVING SUM(shares) > 0 ORDER BY symbol",
-                (session["user_id"],))
-            rows = c.fetchall()
-            return render_template("sell.html", rows=rows)
+    # User reached route via GET (as by clicking a link or via redirect)
+    else:
+
+        # Query the user's current stock portfolio
+        stocks = db.session.query(Transaction.symbol).filter_by(user_id=session["user_id"]).group_by(
+            Transaction.symbol).having(db.func.sum(Transaction.shares) > 0).order_by(
+            Transaction.symbol).all()
+        return render_template("sell.html", stocks=stocks)
 
 
 @app.route("/history")
@@ -367,15 +375,9 @@ def sell():
 def history():
     """Show history of transactions"""
 
-    # Connect to SQLite database
-    with sqlite3.connect("finance.db") as conn:
-        conn.row_factory = dict_factory
-        c = conn.cursor()
-
-        # Query the user's transaction history
-        c.execute("SELECT * FROM transactions WHERE user_id = (?)", (session["user_id"],))
-        rows = c.fetchall()
-        return render_template("history.html", rows=rows)
+    # Query the user's transaction history
+    transactions = Transaction.query.filter_by(user_id=session["user_id"]).all()
+    return render_template("history.html", transactions=transactions)
 
 
 @app.route("/leaderboard")
@@ -383,44 +385,35 @@ def history():
 def leaderboard():
     """Show leaderboard"""
 
-    # Connect to SQLite database
-    with sqlite3.connect("finance.db") as conn:
-        conn.row_factory = dict_factory
-        c = conn.cursor()
+    users = User.query.all()
 
-        c.execute("SELECT * FROM users")
-        users = c.fetchall()
+    ranking = []
 
-        # Calculate and assign every user's net worth
-        for user in users:
+    # Compute every user's net worth
+    for user in users:
+        tmpuser = {"username": user.username, "networth": float(user.cash)}
 
-            # Initialize the user's net worth to user's cash holdings
-            user["networth"] = user["cash"]
+        # Query the the user's current stock portfolio
+        stocks = db.session.query(db.func.sum(Transaction.shares).label("shares"), Transaction.symbol).filter_by(
+            user_id=user.id).group_by(Transaction.symbol).having(db.func.sum(Transaction.shares) > 0).all()
 
-            # Query the the user's current stock portfolio
-            c.execute(
-                "SELECT SUM(shares) AS shares, symbol FROM transactions WHERE user_id = (?) GROUP BY symbol HAVING SUM(shares) > 0",
-                (user["id"],))
-            stocks = c.fetchall()
+        # Calculate the user's net worth with user's stock holdings
+        for stock in stocks:
+            tmpprice = lookup(stock.symbol)["price"]
+            tmpuser["networth"] += tmpprice * stock.shares
 
-            # Calculate the user's net worth with user's stock holdings
-            for stock in stocks:
-                # Lookup current price of each stock in portfolio
-                stock["price"] = lookup(stock["symbol"])["price"]
+        ranking.append(tmpuser)
 
-                # Update the user's net worth
-                user["networth"] += stock["price"] * stock["shares"]
+    # Sort list by user net worth
+    leaderboard = sorted(ranking, key=lambda item: item["networth"], reverse=True)
 
-        # Sort list by user net worth
-        ranking = sorted(users, key=lambda item: item["networth"], reverse=True)
+    # Assign a rank to every user in leaderboard
+    rank = 1
+    for user in leaderboard:
+        user["rank"] = rank
+        rank += 1
 
-        # Calculate and assign every user's rank
-        rank = 1
-        for user in ranking:
-            user["rank"] = rank
-            rank += 1
-
-        return render_template("leaderboard.html", ranking=ranking)
+    return render_template("leaderboard.html", leaderboard=leaderboard)
 
 
 @app.route("/account", methods=["GET", "POST"])
@@ -428,62 +421,48 @@ def leaderboard():
 def account():
     """Change user's password"""
 
-    # Connect to SQLite database
-    with sqlite3.connect("finance.db") as conn:
-        conn.row_factory = dict_factory
-        c = conn.cursor()
+    # User reached route via POST (as by submitting a form via POST)
+    if request.method == "POST":
 
-        # User reached route via POST (as by submitting a form via POST)
-        if request.method == "POST":
-
-            # Ensure old password was submitted
-            if not request.form.get("old_password"):
-                flash("Must provide current password.")
-                return render_template("account.html")
-
-            # Ensure new password was submitted
-            if not request.form.get("new_password"):
-                flash("Must provide new password.")
-                return render_template("account.html")
-
-            # Ensure new password meets length requirement
-            if len(request.form.get("new_password")) < 6:
-                flash("New password does not meet length requirement.")
-                return render_template("account.html")
-
-            # Ensure password fields match
-            if request.form.get("new_password") != request.form.get("confirmation"):
-                flash("Passwords do not match.")
-                return render_template("account.html")
-
-            # Query database for password
-            c.execute("SELECT * FROM users WHERE id = (?)", (session["user_id"],))
-            rows = c.fetchall()
-
-            # Ensure old password is correct
-            if not check_password_hash(rows[0]["hash"], request.form.get("old_password")):
-                flash("Invalid current password.")
-                return render_template("account.html")
-
-            # Update the database with the new password
-            c.execute("UPDATE users SET hash = (?) WHERE id = (?)",
-                      (generate_password_hash(request.form.get("new_password")), session["user_id"],))
-            conn.commit()
-
-            # Redirect user to home page
-            flash("Password changed!")
-            return redirect("/")
-
-        # User reached route via GET (as by clicking a link or via redirect)
-        else:
+        # Ensure old password was submitted
+        if not request.form.get("old_password"):
+            flash("Must provide current password.")
             return render_template("account.html")
 
+        # Ensure new password was submitted
+        if not request.form.get("new_password"):
+            flash("Must provide new password.")
+            return render_template("account.html")
 
-def dict_factory(cursor, row):
-    d = {}
-    for idx, col in enumerate(cursor.description):
-        d[col[0]] = row[idx]
-    return d
+        # Ensure new password meets length requirement
+        if len(request.form.get("new_password")) < 6:
+            flash("New password does not meet length requirement.")
+            return render_template("account.html")
+
+        # Ensure password fields match
+        if request.form.get("new_password") != request.form.get("confirmation"):
+            flash("Passwords do not match.")
+            return render_template("account.html")
+
+        # Query database for password
+        user = User.query.get(session["user_id"])
+
+        # Ensure old password is correct
+        if not check_password_hash(user.hash, request.form.get("old_password")):
+            flash("Invalid current password.")
+            return render_template("account.html")
+
+        # Update the database with the new password
+        user.hash = generate_password_hash(request.form.get("new_password"))
+        db.session.commit()
+
+        # Redirect user to home page
+        flash("Password changed!")
+        return redirect("/")
+
+    # User reached route via GET (as by clicking a link or via redirect)
+    else:
+        return render_template("account.html")
 
 
 def errorhandler(e):

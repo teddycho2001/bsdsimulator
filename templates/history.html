@@ -15,12 +15,12 @@
         </tr>
         </thead>
         <tbody>
-        {% for transaction in rows %}
+        {% for transaction in transactions %}
             <tr>
-                <td>{{ transaction["symbol"] }}</td>
-                <td>{{ transaction["shares"] }}</td>
-                <td>{{ transaction["price"] | usd }}</td>
-                <td>{{ transaction["transacted"] }}</td>
+                <td>{{ transaction.symbol }}</td>
+                <td>{{ transaction.shares }}</td>
+                <td>{{ transaction.price | usd }}</td>
+                <td>{{ transaction.transacted }}</td>
             </tr>
         {% endfor %}
         </tbody>

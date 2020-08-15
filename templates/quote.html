@@ -7,8 +7,18 @@
 {% block main %}
     <form action="/quote" method="post">
         <div class="form-group">
-            <input autocomplete="off" autofocus class="form-control" name="symbol" placeholder="Symbol" type="text">
+            <input autocomplete="off" autofocus class="form-control" id="symbol" name="symbol" placeholder="Symbol"
+                   type="text">
         </div>
-        <button class="btn btn-primary" type="submit">Quote</button>
+        <button class="btn btn-primary" id="submit" type="submit" disabled>Quote</button>
     </form>
+    <script>
+        document.querySelector('#symbol').onkeyup = function () {
+            if (document.querySelector('#symbol').value === '') {
+                document.querySelector('#submit').disabled = true;
+            } else {
+                document.querySelector('#submit').disabled = false;
+            }
+        }
+    </script>
 {% endblock %}

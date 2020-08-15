@@ -5,7 +5,7 @@
 {% endblock %}
 
 {% block main %}
-    <blockquote id="lewis" class="blockquote text-left">
+    <blockquote class="blockquote text-left" id="lewis">
         <p class="mb-0">If he could make millions of dollars come out of those phones, he became that most revered of
             all species: a Big Swinging D---.</p>
         <footer class="blockquote-footer">Michael Lewis <cite title="Source Title">Liar's Poker</cite></footer>
@@ -21,7 +21,7 @@
         </tr>
         </thead>
         <tbody>
-        {% for stock in rows %}
+        {% for stock in portfolio %}
             <tr>
                 <td>{{ stock["symbol"] }}</td>
                 <td>{{ stock["name"] }}</td>
@@ -42,7 +42,7 @@
             <td></td>
             <td></td>
             <td></td>
-            <td id="value">{{ value | usd }}</td>
+            <td id="networth">{{ networth | usd }}</td>
         </tr>
         </tbody>
     </table>

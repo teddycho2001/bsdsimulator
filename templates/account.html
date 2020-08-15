@@ -7,18 +7,43 @@
 {% block main %}
     <form action="/account" method="post">
         <div class="form-group">
-            <input autofocus class="form-control" name="old_password" placeholder="Current password" type="password">
+            <input autofocus class="form-control" id="old_password" name="old_password" placeholder="Current password"
+                   type="password">
         </div>
         <div class="form-group">
-            <input class="form-control" name="new_password" placeholder="New password" type="password">
+            <input class="form-control" id="new_password" name="new_password" placeholder="New password"
+                   type="password">
         </div>
         <div class="form-group">
-            <input class="form-control" name="confirmation" placeholder="Re-enter new password" type="password"
-                   aria-describedby="passwordHelp">
+            <input class="form-control" id="confirmation" name="confirmation" placeholder="Re-enter new password"
+                   type="password" aria-describedby="passwordHelp">
             <small id="passwordHelp" class="form-text text-muted">Passwords must be at least 6 characters.</small>
             <small id="passwordHelp" class="form-text text-muted">We store a hash of your password to ensure its
                 security.</small>
         </div>
-        <button class="btn btn-primary" type="submit">Save changes</button>
+        <button class="btn btn-primary" id="submit" type="submit" disabled>Save changes</button>
     </form>
+    <script>
+        document.querySelector('#old_password').onkeyup = function () {
+            if (document.querySelector('#old_password').value === '' || document.querySelector('#new_password').value === '' || document.querySelector('#confirmation').value === '') {
+                document.querySelector('#submit').disabled = true;
+            } else {
+                document.querySelector('#submit').disabled = false;
+            }
+        }
+        document.querySelector('#new_password').onkeyup = function () {
+            if (document.querySelector('#old_password').value === '' || document.querySelector('#new_password').value === '' || document.querySelector('#confirmation').value === '') {
+                document.querySelector('#submit').disabled = true;
+            } else {
+                document.querySelector('#submit').disabled = false;
+            }
+        }
+        document.querySelector('#confirmation').onkeyup = function () {
+            if (document.querySelector('#old_password').value === '' || document.querySelector('#new_password').value === '' || document.querySelector('#confirmation').value === '') {
+                document.querySelector('#submit').disabled = true;
+            } else {
+                document.querySelector('#submit').disabled = false;
+            }
+        }
+    </script>
 {% endblock %}

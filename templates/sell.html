@@ -7,16 +7,33 @@
 {% block main %}
     <form action="/sell" method="post">
         <div class="form-group">
-            <select class="form-control" name="symbol">
+            <select class="form-control" id="symbol" name="symbol">
                 <option disabled selected>Symbol</option>
-                {% for stock in rows %}
-                    <option>{{ stock["symbol"] }}</option>
+                {% for stock in stocks %}
+                    <option>{{ stock.symbol }}</option>
                 {% endfor %}
             </select>
         </div>
         <div class="form-group">
-            <input autocomplete="off" class="form-control" min="1" name="shares" placeholder="Shares" type="number">
+            <input autocomplete="off" class="form-control" min="1" id="shares" name="shares" placeholder="Shares"
+                   type="number">
         </div>
-        <button class="btn btn-primary" type="submit">Sell</button>
+        <button class="btn btn-primary" id="submit" type="submit" disabled>Sell</button>
     </form>
+    <script>
+        document.querySelector('#symbol').onchange = function () {
+            if (document.querySelector('#symbol').value === 'Symbol' || document.querySelector('#shares').value === '') {
+                document.querySelector('#submit').disabled = true;
+            } else {
+                document.querySelector('#submit').disabled = false;
+            }
+        }
+        document.querySelector('#shares').onkeyup = function () {
+            if (document.querySelector('#symbol').value === 'Symbol' || document.querySelector('#shares').value === '') {
+                document.querySelector('#submit').disabled = true;
+            } else {
+                document.querySelector('#submit').disabled = false;
+            }
+        }
+    </script>
 {% endblock %}
