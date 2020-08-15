@@ -1,6 +1,7 @@
 import os
 
 from datetime import datetime
+from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, session
 from flask_session import Session
 from flask_sqlalchemy import SQLAlchemy
@@ -9,6 +10,9 @@ from werkzeug.exceptions import default_exceptions, HTTPException, InternalServe
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from helpers import apology, login_required, lookup, usd
+
+# Load environment variables from .env
+load_dotenv()
 
 # Configure application
 app = Flask(__name__)
